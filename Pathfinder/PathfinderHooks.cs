@@ -6,6 +6,7 @@ using System.Xml;
 using Hacknet;
 using Hacknet.Effects;
 using Hacknet.Gui;
+using Hacknet.Extensions;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Pathfinder.Attribute;
@@ -20,6 +21,7 @@ using static Pathfinder.Attribute.PatchAttribute;
 using Pathfinder.Util.Types;
 using static Pathfinder.Event.DrawMainMenuTitlesEvent;
 using Pathfinder.Game.OS;
+using System.Collections.Generic;
 
 namespace Pathfinder
 {
@@ -30,6 +32,49 @@ namespace Pathfinder
     public static class PathfinderHooks
     {
 
+	private static string formatForLog(this string input)
+	{
+		if(input == null)
+			return "(null)";
+		else
+			return $"'{input}'";
+	}
+        
+
+/*        
+	[Patch("Hacknet.Extensions.ExtensionLoader.SendStartingEmailForActiveExtensionNextFrame")]
+	public static void onDebugHook1() {
+		Console.WriteLine($"[SSEFAENF] Starting Mission Path is: {ExtensionLoader.ActiveExtensionInfo.StartingMissionPath.formatForLog()}");
+	}
+
+	[Patch("Hacknet.Extensions.ExtensionInfo.ReadExtensionInfo", 598, flags: InjectFlags.PassLocals, localsID: new int[] { 0 })]
+	public static void onDebugHook2(ref ExtensionInfo ret) {
+		Console.WriteLine($"[REI] Starting Mission Path is: {ret.StartingMissionPath.formatForLog()}");
+	}
+*/
+	[Patch("Hacknet.ActiveMission.isComplete", flags: InjectFlags.PassInvokingInstance | InjectFlags.PassParametersVal | InjectFlags.ModifyReturn)]
+	public static bool onDebugHookHydra(ActiveMission self, out bool ret, List<string> additionalDetails) {
+		ret = true;
+		foreach(var goal in self.goals) {
+			if(!goal.isComplete(additionalDetails)) {
+				Console.WriteLine($"A {goal.GetType().Name} goal prevented mission completion.");
+				ret = false;
+				break;
+			}
+		}
+		return true;
+	}
+
+	[Patch("Hacknet.MailServer.attemptCompleteMission", flags: InjectFlags.PassInvokingInstance | InjectFlags.PassParametersVal)]
+	public static void onDebugHookHydra2(MailServer self, ActiveMission mission) {
+		if(!mission.ShouldIgnoreSenderVerification && !(mission.email.sender == self.emailData[1])) {
+			Console.WriteLine("Mission failed sender verification!");
+			Console.WriteLine("email says: " + self.emailData[1]);
+			Console.WriteLine("Mission says: " + mission.email.sender);
+		}
+	}
+
+/*	
         [Patch("Hacknet.Program.Main", flags: InjectFlags.PassParametersVal | InjectFlags.ModifyReturn)]
         public static bool onMain(string[] args)
         {
@@ -311,7 +356,7 @@ namespace Pathfinder
         )]
         public static bool onLoadSaveFile(OS self, ref Stream stream)
         {
-            /* TODO: Refactor that null out */
+            /* TODO: Refactor that null out *//*
             var loadSaveFileEvent = new Event.OSLoadSaveFileEvent(self, null, stream);
             var exceptions = loadSaveFileEvent.CallEvent();
             if(exceptions.Count > 0)
@@ -321,7 +366,7 @@ namespace Pathfinder
                 {
                     MainMenu.AccumErrors += $"{except.Key} threw: ${except.Value}\n";
                 }
-                /* let Hacknet have an exception */
+                /* let Hacknet have an exception *//*
                 throw new FormatException("Pathfinder modifications caused account to fail loading.");
             }
             if (loadSaveFileEvent.IsCancelled)
@@ -516,7 +561,7 @@ namespace Pathfinder
                                                                 false,
                                                                 true);
             loadComputerEvent.CallEvent();
-        }*/
+        }*//*
 
         static Color defaultTitleColor = new Color(190, 190, 190, 0);
         static SpriteFont defaultTitleFont;
@@ -727,7 +772,7 @@ namespace Pathfinder
         }
 
 
-        /* pure bug-fix patch */
+        /* pure bug-fix patch *//*
         [Patch("Hacknet.SCInstantly.Check", flags:
             InjectFlags.PassParametersVal |  InjectFlags.PassInvokingInstance | InjectFlags.ModifyReturn)]
         public static bool onSCInstantlyCheck(SCInstantly self, out bool retVal, object objOS)
@@ -735,7 +780,7 @@ namespace Pathfinder
             var os = (OS) objOS;
             if (self.needsMissionComplete)
             {
-                /* bug-fix here: adds a null check for `os.currentMission` (when player has no mission) */
+                /* bug-fix here: adds a null check for `os.currentMission` (when player has no mission) *//*
                 if (os.currentMission != null && !os.currentMission.isComplete())
                     retVal = false;
                 else
@@ -746,7 +791,7 @@ namespace Pathfinder
 
         }
 
-        /* philosophical bug-fix patch */
+        /* philosophical bug-fix patch *//*
         [Patch("Hacknet.SCOnConnect.Check", 20, flags:
             InjectFlags.PassParametersVal | InjectFlags.PassInvokingInstance | InjectFlags.ModifyReturn | InjectFlags.PassLocals,
             localsID: new [] {1})]
@@ -767,7 +812,7 @@ namespace Pathfinder
             {
                 /* if the player doesn't have a mission, is their current mission complete?
                  * current community consensus: "yes". This patch makes the code match that.
-                 */
+                 *//*
                 if (os.currentMission != null && !os.currentMission.isComplete())
                 {
                     retVal = false;
@@ -843,5 +888,6 @@ namespace Pathfinder
         {
             calledFromSingle = false;
         }
+*/
     }
 }
