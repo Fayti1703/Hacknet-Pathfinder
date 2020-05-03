@@ -204,6 +204,9 @@ namespace PathfinderPatcher
 
                 gameAssembly.MainModule.MakeFieldAccess("Hacknet.ProgressionFlags", "Flags", AccessMods.Public);
                 gameAssembly.MainModule.MakeMethodAccess("Hacknet.NetworkMap", "loadAssignGameNodes", AccessMods.Public);
+                gameAssembly.MainModule.MakeFieldAccess("Hacknet.MailServer", "emailData", AccessMods.Public);
+                gameAssembly.MainModule.MakeFieldAccess("Hacknet.MailServer", "accounts", AccessMods.Public);
+                gameAssembly.MainModule.MakeFieldAccess("Hacknet.MailServer", "emailSplitDelims", AccessMods.Public);
             }
             catch (Exception ex)
             {

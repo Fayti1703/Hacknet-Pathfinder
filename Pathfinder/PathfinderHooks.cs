@@ -20,6 +20,7 @@ using static Pathfinder.Attribute.PatchAttribute;
 using Pathfinder.Util.Types;
 using static Pathfinder.Event.DrawMainMenuTitlesEvent;
 using Pathfinder.Game.OS;
+using System.Collections.Generic;
 
 namespace Pathfinder
 {
@@ -29,6 +30,66 @@ namespace Pathfinder
     /// Place all functions to be hooked into Hacknet here
     public static class PathfinderHooks
     {
+        /* Debugging crap */
+        [Patch("Hacknet.MissionFunctions.runCommand", flags: InjectFlags.PassParametersVal)]
+        public static void onDebugHookRunFunction(int value, string name) {
+            Console.WriteLine($"Running Mission function '{name}' with val {value}");
+        }
+
+        [Patch("Hacknet.ComputerLoader.readMission", -4  , flags: InjectFlags.PassLocals, localsID: new int[] { 2 } )]
+        public static void onDebugHookMissionRead(ref ActiveMission mission)
+        {
+            Console.WriteLine($"Loaded Mission '{mission.reloadGoalsSourceFile}'.");
+            Console.WriteLine($"startMission={mission.startFunctionName}/{mission.startFunctionValue}");
+            Console.WriteLine($"endMission={mission.endFunctionName}/{mission.endFunctionValue}");
+        }
+        [Patch("Hacknet.ActiveMission.isComplete", flags: InjectFlags.PassInvokingInstance | InjectFlags.PassParametersVal | InjectFlags.ModifyReturn)]
+        public static bool onDebugHookIsComplete(ActiveMission self, out bool ret, List<string> additionalDetails) {
+                ret = true;
+                foreach(var goal in self.goals) {
+                        if(!goal.isComplete(additionalDetails)) {
+                                Console.WriteLine($"A {goal.GetType().Name} goal prevented mission completion for {self.reloadGoalsSourceFile}.");
+                                ret = false;
+                                break;
+                        }
+                }
+                return true;
+        }
+
+	[Patch("Hacknet.MailServer.MailWithSubjectExists", flags: InjectFlags.PassInvokingInstance | InjectFlags.PassParametersVal | InjectFlags.ModifyReturn)]
+	public static bool onDebugHookMailWSE(MailServer self, out bool ret, string userName, string mailSubject) {
+		for (int index1 = 0; index1 < self.accounts.folders.Count; ++index1) {
+			Folder folder = self.accounts.folders[index1];
+			Console.WriteLine($"Checking user folder '{folder.name}' against '{userName}'");
+			if (folder.name.Equals(userName)) {
+				Console.WriteLine("Found user!");
+				for (int index2 = 0; index2 < folder.files.Count; ++index2) {
+					string[] strArray = folder.files[index2].data.Split(MailServer.emailSplitDelims, StringSplitOptions.None);
+					Console.WriteLine($"Checking file '{folder.files[index2].name}'");
+					if(strArray.Length >= 4) {
+						Console.WriteLine($"Checking subject '{strArray[2].ToLower()}' against '{mailSubject.ToLower()}'");
+						if (strArray[2].ToLower() == mailSubject.ToLower()) {
+							Console.WriteLine("All czechs passed!");
+							ret = true;
+							return true;
+						}
+					}
+				}
+				break;
+			}
+		}
+		ret = false;
+		return true;
+	}
+ 
+        [Patch("Hacknet.MailServer.attemptCompleteMission", flags: InjectFlags.PassInvokingInstance | InjectFlags.PassParametersVal)]
+        public static void onDebugHookMailACM(MailServer self, ActiveMission mission) {
+                if(!mission.ShouldIgnoreSenderVerification && !(mission.email.sender == self.emailData[1])) {
+                        Console.WriteLine($"Mission '{mission.reloadGoalsSourceFile}' failed sender verification!");
+                        Console.WriteLine($"e:{self.emailData[1]} != m:{mission.email.sender}");
+                }
+        }
+
 
         [Patch("Hacknet.Program.Main", flags: InjectFlags.PassParametersVal | InjectFlags.ModifyReturn)]
         public static bool onMain(string[] args)
@@ -719,6 +780,7 @@ namespace Pathfinder
         public static bool onLoadRunnableActionsIntoOS(string filepath, object OSobj)
         {
             var truePath = LocalizedFileLoader.GetLocalizedFilepath(Utils.GetFileLoadPrefix() + filepath);
+            Console.WriteLine($"Loading Conditional Actions File '{truePath}' into OS...");
             var evt = new Event.ActionsLoadIntoOSEvent(truePath, (OS) OSobj);
             var except = evt.CallEvent();
             if(except.Count > 0)
@@ -745,6 +807,8 @@ namespace Pathfinder
             return true;
 
         }
+
+        private static int logCount;
 
         /* philosophical bug-fix patch */
         [Patch("Hacknet.SCOnConnect.Check", 20, flags:
@@ -780,6 +844,9 @@ namespace Pathfinder
                 retVal = true;
             else
                 retVal = false;
+
+            if(false /* retVal || (logCount++ % 360) == 0 */)
+                Console.WriteLine($"OnConnect returning {retVal.ToString().ToUpper()} for {os.connectedComp?.ip ?? "(null)"} == {computer.ip}");
 
             return true;
         }
