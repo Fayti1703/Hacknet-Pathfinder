@@ -32,6 +32,13 @@ namespace Pathfinder
     public static class PathfinderHooks
     {
 
+	private static HashSet<string> enabledTags = new HashSet<string>();
+
+    	private static void debugLog(string what, string tag) {
+    		if(!enabledTags.Contains(tag.ToLower())) return;
+    		OS.currentInstance.write($"[{tag}] {what}");
+    	}
+
 	private static string formatForLog(this string input)
 	{
 		if(input == null)
@@ -52,12 +59,25 @@ namespace Pathfinder
 		Console.WriteLine($"[REI] Starting Mission Path is: {ret.StartingMissionPath.formatForLog()}");
 	}
 */
+
+	[Patch("Hacknet.MissionFunctions.runCommand", flags: InjectFlags.PassParametersVal)]
+	public static void onDebugHook_runFunction(int value, string name) {
+		debugLog($"Running Mission function '{name}' with val {value}", "MisnFunc");
+	}
+
+	[Patch("Hacknet.ComputerLoader.readMission", -4, flags: InjectFlags.PassLocals, localsID: new int[] { 2 } )]
+	public static void onDebugHookMissionRead(ref ActiveMission mission) {
+		debugLog($"Loaded Mission '{mission.reloadGoalsSourceFile}'.", "MisnLoad");
+		debugLog($"startMission = {mission.startFunctionName.formatForLog()} / {mission.startFunctionValue}", "MisnLoad");
+		debugLog($"endMission = {mission.endFunctionName.formatForLog()} / {mission.endFunctionValue}", "MisnLoad");
+	}
+
 	[Patch("Hacknet.ActiveMission.isComplete", flags: InjectFlags.PassInvokingInstance | InjectFlags.PassParametersVal | InjectFlags.ModifyReturn)]
-	public static bool onDebugHookHydra(ActiveMission self, out bool ret, List<string> additionalDetails) {
+	public static bool onDebugHookAM_isComplete(ActiveMission self, out bool ret, List<string> additionalDetails) {
 		ret = true;
 		foreach(var goal in self.goals) {
 			if(!goal.isComplete(additionalDetails)) {
-				Console.WriteLine($"A {goal.GetType().Name} goal prevented mission completion.");
+				debugLog($"A {goal.GetType().Name} goal prevented mission completion.", "MisnComplete");
 				ret = false;
 				break;
 			}
@@ -66,13 +86,93 @@ namespace Pathfinder
 	}
 
 	[Patch("Hacknet.MailServer.attemptCompleteMission", flags: InjectFlags.PassInvokingInstance | InjectFlags.PassParametersVal)]
-	public static void onDebugHookHydra2(MailServer self, ActiveMission mission) {
+	public static void onDebugHookMS_attemptCompleteMission(MailServer self, ActiveMission mission) {
 		if(!mission.ShouldIgnoreSenderVerification && !(mission.email.sender == self.emailData[1])) {
-			Console.WriteLine("Mission failed sender verification!");
-			Console.WriteLine("email says: " + self.emailData[1]);
-			Console.WriteLine("Mission says: " + mission.email.sender);
+			debugLog($"Mission '{mission.reloadGoalsSourceFile}' failed sender verification!", "SenderVerify");
+			debugLog("email says: " + self.emailData[1], "SenderVerify");
+			debugLog("Mission says: " + mission.email.sender, "SenderVerify");
 		}
 	}
+
+	[Patch("Hacknet.SCHasFlags.Check", flags: InjectFlags.ModifyReturn | InjectFlags.PassInvokingInstance | InjectFlags.PassParametersVal)]
+	public static bool onDebugHookSCHF_Check(SCHasFlags self, out bool retval, object os_obj) {
+		OS os = (OS) os_obj;
+		if(string.IsNullOrWhiteSpace(self.requiredFlags)) {
+			debugLog("HasFlags SUCCEEDED: no flags required. lol.", "HasFlags");
+			retval = true;
+			return true;
+		}
+		string[] flags = self.requiredFlags.Split(Utils.commaDelim, StringSplitOptions.RemoveEmptyEntries);
+		debugLog("HasFlags checking against flags: " + String.Join(", ", flags), "HasFlags");
+		foreach(string flag in flags) {
+			if(!os.Flags.HasFlag(flag)) {
+				debugLog($"HasFlags FAILED: Flag {flag.formatForLog()} not present.", "HasFlags");
+				retval = false;
+				return true;
+			}
+		}
+		retval = true;
+		debugLog("HasFlags SUCCEEDED. Running actions.", "hasflags");
+		return true;
+	}
+
+	[Patch("Hacknet.RunnableConditionalActions.LoadIntoOS", flags: InjectFlags.PassParametersVal)]
+	public static void onDebugHookRCA_LoadIntoOS(string filepath, object OSobj) {
+		var truePath = LocalizedFileLoader.GetLocalizedFilepath(Utils.GetFileLoadPrefix() + filepath);
+		debugLog($"Loading Conditional Actions File {truePath.formatForLog()} into OS.", "ActionLoad");
+	}
+
+
+	[Patch("Hacknet.ProgramRunner.ExecuteProgram", 13,
+		flags: InjectFlags.PassParametersVal | InjectFlags.ModifyReturn | InjectFlags.PassLocals,
+	localsID: new int[] { 1 }
+	)]
+	public static bool onDebugHook_runProgram(ref bool disconnects, ref bool returnFlag, object osObj, string[] args) {
+		var os = osObj as OS;
+		if(args[0] == "pfdebug") {
+			if(args.Length == 1) {
+				string strTags;
+				if(enabledTags.Count == 0) strTags = "<NONE>";
+				else strTags = String.Join(", ", enabledTags);
+				os.write("[DBG] Enabled debug tags: " + strTags);
+			} else if(args.Length == 2) {
+				os.write("[DBG] pfdebug [<tag> <on/off/get>]");
+			} else if(args.Length >= 3) {
+				switch(args[2]) {
+					case "on":
+					case "true":
+					case "add":
+						if(enabledTags.Add(args[1].ToLower()))
+							os.write($"[DBG] Added tag '{args[1]}' to active set.");
+						else
+							os.write($"[DBG] Failed to add tag '{args[1]}'. Perhaps it is already on?");
+						break;
+					case "off":
+					case "false":
+					case "remove":
+						if(enabledTags.Remove(args[1].ToLower()))
+							os.write($"[DBG] Removed tag '{args[1]}' from active set.");
+						else
+							os.write($"[DBG] Failed to remove tag '{args[1]}'. Perhaps it is already off?");
+						break;
+					case "get":
+					case "status":
+						if(enabledTags.Contains(args[1].ToLower()))
+							os.write($"[DBG] Tag '{args[1]}' is in active set.");
+						else
+							os.write($"[DBG] Tag '{args[1]}' is NOT in active set.");
+						break;
+					default:
+						os.write("[DBG] Invalid operation. If you think this is in error, edit src.");
+						break;
+				}
+			}
+			disconnects = returnFlag = false;
+			return true;
+		}
+		return false;
+	}
+
 
 /*	
         [Patch("Hacknet.Program.Main", flags: InjectFlags.PassParametersVal | InjectFlags.ModifyReturn)]
